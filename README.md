@@ -2,12 +2,12 @@
 
 ## Overview
 
-L-WAS is a desktop tool that automates sending WhatsApp messages in bulk. It combines:
+L-WAS is a desktop tool that automates sending WhatsApp messages in bulk with a fixed, configurable delay between messages. It combines:
 
 - **Python GUI** (CustomTkinter) for configuring campaigns and monitoring progress.
 - **Node.js server** using **@wppconnect-team/wppconnect** and **Express** to communicate with WhatsApp Web.
 
-You provide a CSV of contacts, define message templates, and the app sends messages through a connected WhatsApp session while respecting a configurable schedule and rate limit.
+You provide a CSV of contacts, define message templates, and the app sends messages through a connected WhatsApp session while respecting a configurable schedule.
 
 ---
 
@@ -22,7 +22,7 @@ You provide a CSV of contacts, define message templates, and the app sends messa
   - `node_client.py` – HTTP client that calls the Node.js server.
   - `utils.py` – Shared utilities (e.g., message formatting).
 - `data/`
-  - `input.csv` – Example input file: contacts and types.
+  - Example input CSV files used for campaigns and testing.
 - `node_server/`
   - `index.js` – Node.js server using `@wppconnect-team/wppconnect` and Express.
   - `package.json` – Node dependencies.
@@ -182,10 +182,10 @@ Place your CSV in `data/input.csv` (or any other path you choose) and select it 
    - **Start Time / End Time**: e.g. `09:00` to `18:00`
    - Only within these days and times will messages be sent.
 
-3. **Configure rate limit & notification**
+3. **Configure delay & notification**
 
-   - **Messages per Minute**: e.g. `5`
-   - **Completion Notification Number**: optional phone number that will receive a "batch completed" message when the run finishes.
+   - **Message Delay (sec)**: fixed delay between each message, e.g. `5`.
+   - **Done Number**: optional phone number that will receive a "batch completed" WhatsApp message when the run finishes.
 
 4. **Define templates** (Templates tab)
 
@@ -213,14 +213,15 @@ Place your CSV in `data/input.csv` (or any other path you choose) and select it 
    - Use **PAUSE/RESUME** to temporarily stop and resume.
    - Use **STOP** to end the run.
    - Progress bar and log window will show real-time status.
+   - The app will respect your configured schedule sessions and insert the configured delay between each message.
 
 ---
 
 ## 7. Outputs & Logs
 
-- **`worked.csv`** – Contacts successfully processed.
-- **`failed.csv`** – Contacts where sending failed, with a reason.
-- **`state.json`** – Saved GUI settings (schedule, templates, etc.) so they persist between runs.
+- **`worked.csv`** – Contacts successfully processed (name, phone, username_type, timestamp).
+- **`failed.csv`** – Contacts where sending failed (name, phone, username_type, failure_reason, timestamp).
+- **`state.json`** – Saved GUI settings (message delay, done number, templates, schedule) so they persist between runs.
 
 These files are created/updated in the project directory when runs complete.
 

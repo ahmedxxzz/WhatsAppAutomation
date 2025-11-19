@@ -9,6 +9,7 @@ class AutomationWorker(threading.Thread):
         self.templates = templates 
         self.scheduler = scheduler
         self.config = config 
+        # config now expects: {'msg_delay': float, 'done_number': str}
         self.callbacks = callbacks 
         
         self.running = True
@@ -28,13 +29,11 @@ class AutomationWorker(threading.Thread):
                 time.sleep(1)
                 continue
 
-            # 1. Check Schedule (Uses new Multi-Session Logic)
+            # 1. Check Schedule
             allowed, reason = self.scheduler.is_allowed()
             if not allowed:
-                # To avoid spamming logs, we can check if the last log was a wait message
-                # For simplicity here, we just wait longer
                 self.log(f"Waiting: {reason}")
-                time.sleep(30) # Check every 30s
+                time.sleep(30) 
                 continue
 
             # 2. Process Item
@@ -65,9 +64,14 @@ class AutomationWorker(threading.Thread):
             current += 1
             self.callbacks['on_progress'](current / total)
 
-            # 5. Rate Limit Sleep
-            wait_time = 60.0 / float(self.config.get('rate_limit', 5))
-            time.sleep(wait_time)
+            # 5. Fixed Delay (NEW LOGIC)
+            try:
+                delay = float(self.config.get('msg_delay', 5))
+                if delay < 0: delay = 0
+            except ValueError:
+                delay = 5.0
+            
+            time.sleep(delay)
 
         self.log("Queue completed.")
         

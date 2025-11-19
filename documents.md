@@ -1,168 +1,112 @@
 ## **A. System Overview**
 
-**Project Name:** Local WhatsApp Automation Suite (L-WAS)
+**Project Name:** Local WhatsApp Automation Suite (L-WAS) v2.1
 
 **Description:**
-L-WAS is a desktop automation solution designed to send personalized WhatsApp messages to a list of contacts. It operates on a decoupled architecture:
-1.  **Python Frontend (Client):** Handles the Graphical User Interface (GUI), business logic, scheduling, CSV processing, and state management.
-2.  **Node.js Backend (Server):** A lightweight bridge server using `wppconnect` to interface with the WhatsApp Web protocol. It exposes a local REST API.
+L-WAS v2.1 is a desktop automation solution for sending personalized WhatsApp messages. This version retains the **Multi-Session Scheduler** but introduces a precise **Fixed Delay Rate Control** system, replacing the previous "messages per minute" logic.
 
 **Architecture:**
-*   **Communication:** The Python app sends HTTP POST requests to the Node.js server (`localhost:3000`).
-*   **Data Persistence:** The app maintains state via local CSV files (`worked.csv`, `failed.csv`) and a JSON configuration file (`state.json`).
-*   **Execution:** The Python app runs a background worker thread that keeps the UI responsive while processing the message queue and adhering to time schedules.
+*   **Frontend:** Python/CustomTkinter.
+*   **Backend:** Node.js `wppconnect` bridge.
+*   **Timing:**
+    *   **Scheduler:** Determines *if* the worker is allowed to run based on Time of Day.
+    *   **Rate Controller:** Determines the *exact pause duration* between messages (e.g., "Sleep 5 seconds").
 
 ---
 
-## **B. Functional Requirements**
+## **B. Functional Requirements (Updated)**
 
-### **1. Scheduling & Time Management**
-*   **Days of Week:** User can select specific active days (e.g., Mon, Tue, Wed).
-*   **Time Windows:** User defines start and end times (e.g., `09:00` to `17:00`).
-*   **Logic:** The worker thread checks the system time every second. If the current time/day is outside the allowed window, the worker pauses (enters a "Waiting for schedule" state) until the window opens.
+### **1. Scheduling (Multi-Session)**
+*   (Unchanged) Users define multiple active windows per day (e.g., Mon 09:00-12:00 AND 14:00-16:00).
 
-### **2. CSV Processing & "worked.csv" Logic**
-*   **Master Input:** A CSV file containing: `name`, `phone`, `username_type`.
-*   **Persistence Strategy (The "Worked" Logic):**
-    *   **Startup/Load:** When the process starts, the app reads `worked.csv` (a registry of previously successful numbers).
-    *   **Filtering:** It compares the Master Input against `worked.csv`. Any phone number found in `worked.csv` is **skipped**.
-    *   **Queue:** Only numbers *not* present in `worked.csv` are added to the processing queue.
-    *   **Runtime:** As soon as a message is successfully sent, that record is immediately appended to `worked.csv` to prevent duplicate sends if the app is restarted.
+### **2. Rate Limiting (NEW: Fixed Delay)**
+*   **Input:** "Message Delay" (in seconds).
+*   **Data Type:** Positive number (Integer or Float). Examples: `5`, `1.5`, `10`.
+*   **Logic:**
+    1.  Worker sends a message.
+    2.  Worker receives response (Success/Fail).
+    3.  Worker **immediately sleeps** for `X` seconds defined in the input.
+    4.  Worker proceeds to the next contact.
+*   **Constraint:** Input must be $> 0$.
+*   **Interaction with Retries:** If a network error occurs, internal retries happen *within* the send attempt. The fixed delay occurs *after* the final outcome of that attempt is resolved.
 
-### **3. Message Templates**
-*   **Dynamic Selection:** The app selects the template based on the `username_type` column in the CSV (values: `male`, `female`, `group`).
-*   **Placeholders:** Support for `{name}`, `{phone}`, and `{username_type}` replacement within the text.
+### **3. CSV Processing & Logging**
+*   (Unchanged) Load CSV -> Filter against `worked.csv` -> Log results.
 
-### **4. Rate Limiting & Delays**
-*   **Configuration:** User sets "Messages per minute".
-*   **Calculation:** `Delay = 60 seconds / Messages_per_minute`.
-*   **Jitter:** (Optional but recommended) Slight random variation to emulate human behavior.
-
-### **5. Logging & Error Handling**
-*   **Success:** Log to GUI console and append to `worked.csv`.
-*   **Logical Failure:** (e.g., Network error, Node server down) Append to `failed.csv`.
-*   **System Error:** (e.g., Python exceptions) Append to `errors.txt`.
-*   **Retry Logic:** If the Node server returns a 500 or times out, retry X times before marking as failed.
-
-### **6. Communication with Node.js**
-*   **Endpoint:** `POST http://localhost:3000/send-message`
-*   **Payload:** `{"number": "123456789", "message": "Hello..."}`
-*   **Note on Formatting:** The provided Node.js `index.js` appends `@c.us`. The Python app must send the **raw number** (digits only).
-
-### **7. CustomTkinter GUI**
-*   **Tabs:**
-    1.  **Dashboard/Run:** Load CSV, Start/Stop/Pause controls, Progress Bar, Live Console.
-    2.  **Settings:** Schedule config, Rate limits, Phone number for "Done" notification.
-    3.  **Templates:** Text areas for Male, Female, and Fallback/Group messages.
-    4.  **Data:** Preview tables for CSVs, buttons to open log files.
+### **4. GUI Dashboard (Updated)**
+*   **Global Settings Area:**
+    *   **Removed:** "Messages per Minute" input.
+    *   **Added:** "Message Delay (seconds)" input.
+*   **Validation:** Prevent non-numeric input or negative numbers.
 
 ---
 
-## **D. Data Flow Diagram**
+## **D. Data Flow Diagram (Updated)**
 
 ```mermaid
 graph TD
-    A[Master CSV] --> B(Python App: CSV Manager)
-    C[worked.csv] --> B
-    B -- Filter Duplicates --> D[Processing Queue]
-    D --> E[Worker Thread]
-    
-    E -- Check Time --> F{Scheduler}
-    F -- Outside Window --> E
-    F -- Inside Window --> G[Message Generator]
-    
-    G -- Apply Templates --> H[HTTP Client]
-    H -- POST JSON --> I[Node.js Server]
-    I -- WPPConnect --> J[WhatsApp Cloud]
-    
-    I -- Response 200 --> K[Success Handler]
-    I -- Response 500 --> L[Error Handler]
-    
-    K --> M[Append to worked.csv]
-    K --> N[Update GUI Log]
-    L --> O[Append to failed.csv]
-    L --> N
+    A[Worker Thread] --> B{Is Schedule Active?}
+    B -- No --> C[Sleep 30s]
+    B -- Yes --> D[Process Contact]
+    D --> E[Send HTTP Request]
+    E --> F{Result?}
+    F --> G[Log Success/Fail]
+    G --> H[**SLEEP Fixed Delay (e.g., 5s)**]
+    H --> A
 ```
 
 ---
 
-## **E. Flowchart (Execution Loop)**
+## **E. Flowchart (Worker Execution)**
 
 ```text
-[START]
+[START WORKER]
    |
    v
-[Load Configuration & Templates]
-   |
-[Load Master CSV] <---+
-   |                  |
-[Load worked.csv]     |
-   |                  |
-[Filter: Queue = Master - Worked]
+[Load Queue]
    |
    v
-[User Clicks START]
+[LOOP: While Queue Not Empty]
+   |
+   +-> [Check Pause/Stop?]
+   |
+   +-> [Check Schedule (Multi-Session)?] --(No)--> [Wait]
+   |
+   +-> (Yes)
    |
    v
-[Loop: While Queue is not Empty]
-   |
-   +-> [Check Pause State?] --(Yes)--> [Sleep 1s] -> [Loop]
-   |
-   +-> [Check Schedule?] --(No)--> [Update Status: Waiting] -> [Sleep 30s] -> [Loop]
-   |
-   +-> (Yes - Schedule OK)
+[Pop Contact] -> [Generate Msg] -> [POST to Node.js]
    |
    v
-[Pop Next Contact]
+[Receive Response]
    |
-[Select Template (Male/Female)]
+   +-> (Success) -> [Log worked.csv]
+   +-> (Fail)    -> [Log failed.csv]
    |
-[Format Message (Replace {name})]
-   |
-[POST /send-message to Node.js]
-   |
-   +-> (Success?) --(Yes)--> [Log to worked.csv] -> [GUI Success Log] -> [Sleep Rate Limit]
-   |
-   +-> (No) ------> [Log to failed.csv] -> [GUI Error Log]
+   v
+[**SLEEP: Configured Delay (X seconds)**]  <-- UPDATED STEP
    |
    v
 [Loop]
-   |
-[Queue Empty?] --(Yes)--> [Send 'Done' Msg] -> [STOP]
 ```
 
 ---
 
-## **F. Directory Structure**
+## **F. Sequence Diagram (Timing)**
 
-```text
-WhatsAppAutomation/
-│
-├── node_server/
-│   ├── index.js          # (Provided file)
-│   ├── package.json
-│   └── node_modules/
-│
-├── src/
-│   ├── __init__.py
-│   ├── main.py           # Entry point
-│   ├── gui.py            # CustomTkinter Interface
-│   ├── worker.py         # Threading & Logic
-│   ├── scheduler.py      # Time checking logic
-│   ├── csv_manager.py    # Data loading & Filtering
-│   ├── node_client.py    # HTTP Requests
-│   ├── utils.py          # Helpers (Text formatting)
-│   └── assets/           # Icons (optional)
-│
-├── data/
-│   ├── input.csv         # User provided list
-│   ├── worked.csv        # Auto-generated
-│   ├── failed.csv        # Auto-generated
-│   └── errors.txt        # Auto-generated
-│
-├── state.json            # Saves GUI settings
-├── requirements.txt      # Python dependencies
-└── README.md
-```
+1.  **Worker** calls `NodeClient.send_message()`.
+2.  **NodeClient** returns `200 OK`.
+3.  **Worker** updates GUI Progress.
+4.  **Worker** reads `delay_seconds` from config.
+5.  **Worker** executes `time.sleep(delay_seconds)`.
+6.  **Worker** begins next iteration.
 
 ---
+
+## **H. README Update (Configuration)**
+
+### **Global Settings**
+*   **Message Delay (s):** The exact time in seconds to wait *after* sending a message before starting the next one.
+    *   *Recommended:* `5` to `15` seconds to avoid spam detection.
+    *   *Minimum:* `1` second.
+*   **Done Number:** Phone number to receive a notification when the batch finishes.

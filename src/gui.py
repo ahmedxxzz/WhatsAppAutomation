@@ -16,7 +16,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("L-WAS v2.0: Multi-Session Automation")
+        self.title("L-WAS v2.1: Fixed Delay Automation")
         self.geometry("1000x700")
 
         self.grid_columnconfigure(1, weight=1)
@@ -26,7 +26,7 @@ class App(ctk.CTk):
         self.scheduler = Scheduler()
         self.csv_manager = CSVManager()
         self.worker = None
-        self.schedule_data = {day: [] for day in DAYS_OF_WEEK} # Stores sessions
+        self.schedule_data = {day: [] for day in DAYS_OF_WEEK} 
 
         self._create_sidebar()
         self._create_tabs()
@@ -37,7 +37,7 @@ class App(ctk.CTk):
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
         self.sidebar.grid_rowconfigure(4, weight=1)
 
-        ctk.CTkLabel(self.sidebar, text="L-WAS v2", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, padx=20, pady=(20, 10))
+        ctk.CTkLabel(self.sidebar, text="L-WAS v2.1", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, padx=20, pady=(20, 10))
         
         self.btn_load_csv = ctk.CTkButton(self.sidebar, text="Load CSV", command=self.load_csv_dialog)
         self.btn_load_csv.grid(row=1, column=0, padx=20, pady=10)
@@ -85,23 +85,26 @@ class App(ctk.CTk):
         self.log_box.pack(pady=10, fill="both", expand=True, padx=10)
 
     def _setup_config_tab(self):
-        # --- Rate Limit ---
-        frame_rate = ctk.CTkFrame(self.tab_config)
-        frame_rate.pack(pady=10, fill="x", padx=10)
-        ctk.CTkLabel(frame_rate, text="Global Settings", font=("Arial", 14, "bold")).pack(pady=5)
+        # --- Global Settings (Updated for Delay) ---
+        frame_global = ctk.CTkFrame(self.tab_config)
+        frame_global.pack(pady=10, fill="x", padx=10)
+        ctk.CTkLabel(frame_global, text="Global Settings", font=("Arial", 14, "bold")).pack(pady=5)
         
-        f_r_in = ctk.CTkFrame(frame_rate, fg_color="transparent")
-        f_r_in.pack(pady=5)
-        ctk.CTkLabel(f_r_in, text="Msgs/Min:").pack(side="left", padx=5)
-        self.entry_rate = ctk.CTkEntry(f_r_in, width=50)
-        self.entry_rate.pack(side="left", padx=5)
-        self.entry_rate.insert(0, "5")
+        f_g_in = ctk.CTkFrame(frame_global, fg_color="transparent")
+        f_g_in.pack(pady=5)
 
-        ctk.CTkLabel(f_r_in, text="Done Number:").pack(side="left", padx=5)
-        self.entry_done_num = ctk.CTkEntry(f_r_in, width=120)
+        # NEW: Message Delay
+        ctk.CTkLabel(f_g_in, text="Message Delay (sec):").pack(side="left", padx=5)
+        self.entry_delay = ctk.CTkEntry(f_g_in, width=60)
+        self.entry_delay.pack(side="left", padx=5)
+        self.entry_delay.insert(0, "5") # Default 5 seconds
+
+        # Done Number
+        ctk.CTkLabel(f_g_in, text="Done Number:").pack(side="left", padx=5)
+        self.entry_done_num = ctk.CTkEntry(f_g_in, width=120)
         self.entry_done_num.pack(side="left", padx=5)
 
-        # --- Schedule Creator ---
+        # --- Schedule Creator (Multi-Session) ---
         frame_sched = ctk.CTkFrame(self.tab_config)
         frame_sched.pack(pady=10, fill="both", expand=True, padx=10)
         
@@ -153,9 +156,7 @@ class App(ctk.CTk):
         start = self.entry_start.get().strip()
         end = self.entry_end.get().strip()
 
-        # Validate format
         try:
-            # Simple validation assuming HH:MM
             if len(start) != 5 or len(end) != 5 or ':' not in start or ':' not in end:
                 raise ValueError
             if start >= end:
@@ -165,13 +166,9 @@ class App(ctk.CTk):
             messagebox.showerror("Error", "Invalid Format. Use HH:MM (e.g., 09:00)")
             return
 
-        # Add to data
         session = {'start': start, 'end': end}
         self.schedule_data[day].append(session)
-        
-        # Sort sessions by start time
         self.schedule_data[day].sort(key=lambda x: x['start'])
-        
         self.refresh_session_list()
 
     def remove_session(self, day, index):
@@ -179,11 +176,9 @@ class App(ctk.CTk):
         self.refresh_session_list()
 
     def refresh_session_list(self):
-        # Clear current list
         for widget in self.scroll_sessions.winfo_children():
             widget.destroy()
 
-        # Re-render
         for day in DAYS_OF_WEEK:
             sessions = self.schedule_data.get(day, [])
             if sessions:
@@ -197,7 +192,6 @@ class App(ctk.CTk):
                     txt = f"{s['start']} - {s['end']}"
                     ctk.CTkLabel(row, text=txt).pack(side="left", padx=10)
                     
-                    # Pass current index to delete function using default arg hack
                     btn_del = ctk.CTkButton(row, text="X", width=30, fg_color="red", 
                                             command=lambda d=day, i=idx: self.remove_session(d, i))
                     btn_del.pack(side="right", padx=10)
@@ -230,7 +224,6 @@ class App(ctk.CTk):
             self.log(f"Error loading CSV: {e}")
             return
 
-        # Pass the full schedule map to scheduler
         self.scheduler.update_config(self.schedule_data)
         
         templates = {
@@ -239,8 +232,16 @@ class App(ctk.CTk):
             'group': self.txt_group.get("1.0", "end-1c")
         }
         
+        # Validate Delay
+        try:
+            d_val = float(self.entry_delay.get())
+            if d_val <= 0: raise ValueError
+        except ValueError:
+            messagebox.showerror("Error", "Message Delay must be a positive number.")
+            return
+
         config = {
-            'rate_limit': int(self.entry_rate.get()),
+            'msg_delay': d_val, # NEW KEY
             'done_number': self.entry_done_num.get()
         }
 
@@ -285,7 +286,7 @@ class App(ctk.CTk):
 
     def _save_state(self):
         state = {
-            'rate': self.entry_rate.get(),
+            'msg_delay': self.entry_delay.get(), # UPDATED
             'done_num': self.entry_done_num.get(),
             'tmpl_m': self.txt_male.get("1.0", "end-1c"),
             'tmpl_f': self.txt_female.get("1.0", "end-1c"),
@@ -301,16 +302,17 @@ class App(ctk.CTk):
                 with open('state.json', 'r') as f:
                     state = json.load(f)
                     
-                    self.entry_rate.delete(0, "end"); self.entry_rate.insert(0, state.get('rate', '5'))
+                    # Handle legacy 'rate' vs new 'msg_delay'
+                    delay_val = state.get('msg_delay', '5')
+                    self.entry_delay.delete(0, "end"); self.entry_delay.insert(0, delay_val)
+                    
                     self.entry_done_num.delete(0, "end"); self.entry_done_num.insert(0, state.get('done_num', ''))
                     
                     self.txt_male.delete("1.0", "end"); self.txt_male.insert("1.0", state.get('tmpl_m', ''))
                     self.txt_female.delete("1.0", "end"); self.txt_female.insert("1.0", state.get('tmpl_f', ''))
                     self.txt_group.delete("1.0", "end"); self.txt_group.insert("1.0", state.get('tmpl_g', ''))
 
-                    # Load Schedule Data
                     saved_sched = state.get('schedule', {})
-                    # Ensure all keys exist
                     for day in DAYS_OF_WEEK:
                         self.schedule_data[day] = saved_sched.get(day, [])
                     

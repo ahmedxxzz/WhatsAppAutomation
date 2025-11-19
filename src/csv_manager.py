@@ -6,8 +6,6 @@ class CSVManager:
     def __init__(self, worked_file="worked.csv", failed_file="failed.csv"):
         self.worked_file = worked_file
         self.failed_file = failed_file
-        
-        # Initialize files with headers if they don't exist
         self._init_file(self.worked_file)
         self._init_file(self.failed_file)
 
@@ -18,21 +16,15 @@ class CSVManager:
                 writer.writerow(['name', 'phone', 'username_type', 'timestamp'])
 
     def load_and_filter(self, input_csv_path):
-        """
-        Loads input CSV, loads worked.csv, returns list of dicts for unworked items.
-        """
         if not os.path.exists(input_csv_path):
             raise FileNotFoundError("Input CSV not found")
 
-        # Load Master
         try:
             df_input = pd.read_csv(input_csv_path, dtype=str)
-            # Normalize columns
             df_input.columns = [c.lower().strip() for c in df_input.columns]
         except Exception as e:
             raise Exception(f"Error reading input CSV: {e}")
 
-        # Load Worked
         worked_phones = set()
         if os.path.exists(self.worked_file):
             try:
@@ -40,9 +32,8 @@ class CSVManager:
                 if 'phone' in df_worked.columns:
                     worked_phones = set(df_worked['phone'].unique())
             except Exception:
-                pass # File might be empty or corrupt, proceed safely
+                pass 
 
-        # Filter
         queue = []
         skipped_count = 0
         
