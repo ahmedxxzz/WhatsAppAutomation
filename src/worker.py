@@ -5,16 +5,16 @@ from node_client import NodeClient
 class AutomationWorker(threading.Thread):
     def __init__(self, queue, templates, scheduler, config, callbacks):
         super().__init__()
-        self.queue = queue # List of dicts
-        self.templates = templates # Dict {'male': '...', 'female': '...', 'group': '...'}
+        self.queue = queue 
+        self.templates = templates 
         self.scheduler = scheduler
-        self.config = config # {'rate_limit': 60, 'done_number': '...'}
-        self.callbacks = callbacks # {'on_log': func, 'on_progress': func, 'on_finish': func}
+        self.config = config 
+        self.callbacks = callbacks 
         
         self.running = True
         self.paused = False
         self.client = NodeClient()
-        self.csv_manager = None # Set from main
+        self.csv_manager = None
         
     def run(self):
         total = len(self.queue)
@@ -28,11 +28,13 @@ class AutomationWorker(threading.Thread):
                 time.sleep(1)
                 continue
 
-            # 1. Check Schedule
+            # 1. Check Schedule (Uses new Multi-Session Logic)
             allowed, reason = self.scheduler.is_allowed()
             if not allowed:
-                self.log(f"Schedule Wait: {reason}")
-                time.sleep(10) # Check every 10s
+                # To avoid spamming logs, we can check if the last log was a wait message
+                # For simplicity here, we just wait longer
+                self.log(f"Waiting: {reason}")
+                time.sleep(30) # Check every 30s
                 continue
 
             # 2. Process Item
@@ -40,10 +42,8 @@ class AutomationWorker(threading.Thread):
             phone = item['phone']
             u_type = item.get('username_type', 'group').lower()
             
-            # Select Template
             tmpl = self.templates.get(u_type, self.templates.get('group', ''))
             
-            # Format
             from utils import format_message
             message = format_message(tmpl, item)
 
@@ -71,7 +71,6 @@ class AutomationWorker(threading.Thread):
 
         self.log("Queue completed.")
         
-        # Send Done Message
         done_num = self.config.get('done_number')
         if done_num:
             self.client.send_message(done_num, "Automation Batch Completed Successfully.")

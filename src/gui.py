@@ -1,8 +1,7 @@
 import customtkinter as ctk
-import threading
 import json
 import os
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 from scheduler import Scheduler
 from csv_manager import CSVManager
@@ -11,20 +10,23 @@ from worker import AutomationWorker
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
+DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("L-WAS: WhatsApp Automation")
-        self.geometry("900x600")
+        self.title("L-WAS v2.0: Multi-Session Automation")
+        self.geometry("1000x700")
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # --- Components ---
+        # Data Structures
         self.scheduler = Scheduler()
         self.csv_manager = CSVManager()
         self.worker = None
+        self.schedule_data = {day: [] for day in DAYS_OF_WEEK} # Stores sessions
 
         self._create_sidebar()
         self._create_tabs()
@@ -35,7 +37,7 @@ class App(ctk.CTk):
         self.sidebar.grid(row=0, column=0, rowspan=4, sticky="nsew")
         self.sidebar.grid_rowconfigure(4, weight=1)
 
-        ctk.CTkLabel(self.sidebar, text="L-WAS", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, padx=20, pady=(20, 10))
+        ctk.CTkLabel(self.sidebar, text="L-WAS v2", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, padx=20, pady=(20, 10))
         
         self.btn_load_csv = ctk.CTkButton(self.sidebar, text="Load CSV", command=self.load_csv_dialog)
         self.btn_load_csv.grid(row=1, column=0, padx=20, pady=10)
@@ -48,7 +50,7 @@ class App(ctk.CTk):
         self.tabview.grid(row=0, column=1, padx=20, pady=20, sticky="nsew")
         
         self.tab_run = self.tabview.add("Run Dashboard")
-        self.tab_config = self.tabview.add("Configuration")
+        self.tab_config = self.tabview.add("Schedule Manager")
         self.tab_templates = self.tabview.add("Templates")
 
         self._setup_run_tab()
@@ -83,34 +85,52 @@ class App(ctk.CTk):
         self.log_box.pack(pady=10, fill="both", expand=True, padx=10)
 
     def _setup_config_tab(self):
-        # Schedule
-        ctk.CTkLabel(self.tab_config, text="Working Days (Comma separated: Mon,Tue,Wed)").pack(pady=5)
-        self.entry_days = ctk.CTkEntry(self.tab_config, width=300)
-        self.entry_days.pack(pady=5)
-        self.entry_days.insert(0, "Mon,Tue,Wed,Thu,Fri")
-
-        ctk.CTkLabel(self.tab_config, text="Start Time (HH:MM)").pack(pady=5)
-        self.entry_start = ctk.CTkEntry(self.tab_config)
-        self.entry_start.pack(pady=5)
-        self.entry_start.insert(0, "09:00")
-
-        ctk.CTkLabel(self.tab_config, text="End Time (HH:MM)").pack(pady=5)
-        self.entry_end = ctk.CTkEntry(self.tab_config)
-        self.entry_end.pack(pady=5)
-        self.entry_end.insert(0, "18:00")
-
-        # Rate Limit
-        ctk.CTkLabel(self.tab_config, text="Messages per Minute").pack(pady=5)
-        self.entry_rate = ctk.CTkEntry(self.tab_config)
-        self.entry_rate.pack(pady=5)
-        self.entry_rate.insert(0, "5")
+        # --- Rate Limit ---
+        frame_rate = ctk.CTkFrame(self.tab_config)
+        frame_rate.pack(pady=10, fill="x", padx=10)
+        ctk.CTkLabel(frame_rate, text="Global Settings", font=("Arial", 14, "bold")).pack(pady=5)
         
-        # Done Number
-        ctk.CTkLabel(self.tab_config, text="Completion Notification Number").pack(pady=5)
-        self.entry_done_num = ctk.CTkEntry(self.tab_config)
-        self.entry_done_num.pack(pady=5)
+        f_r_in = ctk.CTkFrame(frame_rate, fg_color="transparent")
+        f_r_in.pack(pady=5)
+        ctk.CTkLabel(f_r_in, text="Msgs/Min:").pack(side="left", padx=5)
+        self.entry_rate = ctk.CTkEntry(f_r_in, width=50)
+        self.entry_rate.pack(side="left", padx=5)
+        self.entry_rate.insert(0, "5")
 
-        ctk.CTkButton(self.tab_config, text="Save Settings", command=self._save_state).pack(pady=20)
+        ctk.CTkLabel(f_r_in, text="Done Number:").pack(side="left", padx=5)
+        self.entry_done_num = ctk.CTkEntry(f_r_in, width=120)
+        self.entry_done_num.pack(side="left", padx=5)
+
+        # --- Schedule Creator ---
+        frame_sched = ctk.CTkFrame(self.tab_config)
+        frame_sched.pack(pady=10, fill="both", expand=True, padx=10)
+        
+        ctk.CTkLabel(frame_sched, text="Session Manager", font=("Arial", 14, "bold")).pack(pady=5)
+
+        # Input Row
+        frame_input = ctk.CTkFrame(frame_sched)
+        frame_input.pack(pady=5)
+
+        self.combo_day = ctk.CTkComboBox(frame_input, values=DAYS_OF_WEEK, width=80)
+        self.combo_day.pack(side="left", padx=5)
+        self.combo_day.set("Mon")
+
+        self.entry_start = ctk.CTkEntry(frame_input, placeholder_text="09:00", width=70)
+        self.entry_start.pack(side="left", padx=5)
+        
+        ctk.CTkLabel(frame_input, text="-").pack(side="left")
+
+        self.entry_end = ctk.CTkEntry(frame_input, placeholder_text="12:00", width=70)
+        self.entry_end.pack(side="left", padx=5)
+
+        ctk.CTkButton(frame_input, text="Add Session", width=100, command=self.add_session_ui).pack(side="left", padx=10)
+
+        # List of Sessions
+        self.scroll_sessions = ctk.CTkScrollableFrame(frame_sched, label_text="Active Sessions")
+        self.scroll_sessions.pack(pady=10, fill="both", expand=True, padx=10)
+
+        # Save Button
+        ctk.CTkButton(self.tab_config, text="Save All Settings", command=self._save_state, fg_color="green").pack(pady=10)
 
     def _setup_templates_tab(self):
         self.txt_male = self._create_template_area("Male Template")
@@ -127,6 +147,60 @@ class App(ctk.CTk):
         return box
 
     # --- Logic ---
+
+    def add_session_ui(self):
+        day = self.combo_day.get()
+        start = self.entry_start.get().strip()
+        end = self.entry_end.get().strip()
+
+        # Validate format
+        try:
+            # Simple validation assuming HH:MM
+            if len(start) != 5 or len(end) != 5 or ':' not in start or ':' not in end:
+                raise ValueError
+            if start >= end:
+                messagebox.showerror("Error", "Start time must be before End time.")
+                return
+        except:
+            messagebox.showerror("Error", "Invalid Format. Use HH:MM (e.g., 09:00)")
+            return
+
+        # Add to data
+        session = {'start': start, 'end': end}
+        self.schedule_data[day].append(session)
+        
+        # Sort sessions by start time
+        self.schedule_data[day].sort(key=lambda x: x['start'])
+        
+        self.refresh_session_list()
+
+    def remove_session(self, day, index):
+        del self.schedule_data[day][index]
+        self.refresh_session_list()
+
+    def refresh_session_list(self):
+        # Clear current list
+        for widget in self.scroll_sessions.winfo_children():
+            widget.destroy()
+
+        # Re-render
+        for day in DAYS_OF_WEEK:
+            sessions = self.schedule_data.get(day, [])
+            if sessions:
+                lbl_day = ctk.CTkLabel(self.scroll_sessions, text=f"--- {day} ---", font=("Arial", 12, "bold"))
+                lbl_day.pack(pady=(10, 2), anchor="w")
+                
+                for idx, s in enumerate(sessions):
+                    row = ctk.CTkFrame(self.scroll_sessions, fg_color="transparent")
+                    row.pack(fill="x", pady=2)
+                    
+                    txt = f"{s['start']} - {s['end']}"
+                    ctk.CTkLabel(row, text=txt).pack(side="left", padx=10)
+                    
+                    # Pass current index to delete function using default arg hack
+                    btn_del = ctk.CTkButton(row, text="X", width=30, fg_color="red", 
+                                            command=lambda d=day, i=idx: self.remove_session(d, i))
+                    btn_del.pack(side="right", padx=10)
 
     def log(self, message):
         self.log_box.insert("end", f"{message}\n")
@@ -146,11 +220,9 @@ class App(ctk.CTk):
 
         self._save_state()
         
-        # Filter CSV
         try:
             queue, skipped = self.csv_manager.load_and_filter(self.csv_path)
             self.log(f"Processing {len(queue)} contacts. Skipped {skipped} (already worked).")
-            
             if len(queue) == 0:
                 self.log("No new contacts to process.")
                 return
@@ -158,9 +230,8 @@ class App(ctk.CTk):
             self.log(f"Error loading CSV: {e}")
             return
 
-        # Config
-        days = [d.strip() for d in self.entry_days.get().split(',')]
-        self.scheduler.update_config(days, self.entry_start.get(), self.entry_end.get())
+        # Pass the full schedule map to scheduler
+        self.scheduler.update_config(self.schedule_data)
         
         templates = {
             'male': self.txt_male.get("1.0", "end-1c"),
@@ -214,14 +285,12 @@ class App(ctk.CTk):
 
     def _save_state(self):
         state = {
-            'days': self.entry_days.get(),
-            'start': self.entry_start.get(),
-            'end': self.entry_end.get(),
             'rate': self.entry_rate.get(),
             'done_num': self.entry_done_num.get(),
             'tmpl_m': self.txt_male.get("1.0", "end-1c"),
             'tmpl_f': self.txt_female.get("1.0", "end-1c"),
             'tmpl_g': self.txt_group.get("1.0", "end-1c"),
+            'schedule': self.schedule_data
         }
         with open('state.json', 'w') as f:
             json.dump(state, f)
@@ -231,14 +300,20 @@ class App(ctk.CTk):
             try:
                 with open('state.json', 'r') as f:
                     state = json.load(f)
-                    self.entry_days.delete(0, "end"); self.entry_days.insert(0, state.get('days', ''))
-                    self.entry_start.delete(0, "end"); self.entry_start.insert(0, state.get('start', '09:00'))
-                    self.entry_end.delete(0, "end"); self.entry_end.insert(0, state.get('end', '18:00'))
+                    
                     self.entry_rate.delete(0, "end"); self.entry_rate.insert(0, state.get('rate', '5'))
                     self.entry_done_num.delete(0, "end"); self.entry_done_num.insert(0, state.get('done_num', ''))
                     
                     self.txt_male.delete("1.0", "end"); self.txt_male.insert("1.0", state.get('tmpl_m', ''))
                     self.txt_female.delete("1.0", "end"); self.txt_female.insert("1.0", state.get('tmpl_f', ''))
                     self.txt_group.delete("1.0", "end"); self.txt_group.insert("1.0", state.get('tmpl_g', ''))
-            except:
-                pass
+
+                    # Load Schedule Data
+                    saved_sched = state.get('schedule', {})
+                    # Ensure all keys exist
+                    for day in DAYS_OF_WEEK:
+                        self.schedule_data[day] = saved_sched.get(day, [])
+                    
+                    self.refresh_session_list()
+            except Exception as e:
+                print(f"Error loading state: {e}")
