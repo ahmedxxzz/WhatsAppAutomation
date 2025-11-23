@@ -13,7 +13,7 @@ class CSVManager:
         if not os.path.exists(filepath):
             with open(filepath, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
-                writer.writerow(['name', 'phone', 'username_type', 'timestamp'])
+                writer.writerow(['name', 'phone', 'timestamp'])
 
     def load_and_filter(self, input_csv_path):
         if not os.path.exists(input_csv_path):
@@ -45,8 +45,7 @@ class CSVManager:
             
             queue.append({
                 'name': row.get('name', ''),
-                'phone': phone,
-                'username_type': row.get('username_type', 'group')
+                'phone': phone
             })
 
         return queue, skipped_count
@@ -57,7 +56,6 @@ class CSVManager:
             writer.writerow([
                 data.get('name'), 
                 data.get('phone'), 
-                data.get('username_type'), 
                 pd.Timestamp.now()
             ])
 
@@ -67,7 +65,6 @@ class CSVManager:
             writer.writerow([
                 data.get('name'), 
                 data.get('phone'), 
-                data.get('username_type'), 
                 reason,
                 pd.Timestamp.now()
             ])
